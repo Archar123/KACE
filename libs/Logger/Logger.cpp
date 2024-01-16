@@ -38,3 +38,51 @@ void Logger::Log(wchar_t* format, ...) {
     printf("[TID:%08x]  %ls", GetCurrentThreadId(), wBuffer);
     fflush(stdout);
 }
+
+void Logger::LogE(const char* format, ...) {
+    std::lock_guard<std::mutex> guard(logMutex);
+
+    va_list args;
+    va_start(args, format);
+    vsprintf_s(sBuffer, format, args);
+    va_end(args);
+
+    printf("[TID:%08x](Error)  %s", GetCurrentThreadId(), sBuffer);
+    fflush(stdout);
+}
+
+void Logger::LogE(wchar_t* format, ...) {
+    std::lock_guard<std::mutex> guard(logMutex);
+
+    va_list args;
+    va_start(args, format);
+    vswprintf_s(wBuffer, format, args);
+    va_end(args);
+
+    printf("[TID:%08x](Error)  %ls", GetCurrentThreadId(), wBuffer);
+    fflush(stdout);
+}
+
+void Logger::LogD(const char* format, ...) {
+    std::lock_guard<std::mutex> guard(logMutex);
+
+    va_list args;
+    va_start(args, format);
+    vsprintf_s(sBuffer, format, args);
+    va_end(args);
+
+    printf("[TID:%08x](Debug)  %s", GetCurrentThreadId(), sBuffer);
+    fflush(stdout);
+}
+
+void Logger::LogD(wchar_t* format, ...) {
+    std::lock_guard<std::mutex> guard(logMutex);
+
+    va_list args;
+    va_start(args, format);
+    vswprintf_s(wBuffer, format, args);
+    va_end(args);
+
+    printf("[TID:%08x](Debug)  %ls", GetCurrentThreadId(), wBuffer);
+    fflush(stdout);
+}

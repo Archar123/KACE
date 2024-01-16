@@ -79,7 +79,7 @@ uintptr_t Provider::FindDataImpl(uintptr_t ptr) {
     if (data_providers.contains(exported_func))
         return (uintptr_t)data_providers[exported_func];
 
-    Logger::Log("[E]Exported Data %s!%s is not implemented\n", pe_file->name.c_str(), exported_func);
+    Logger::LogE("Exported Data %s!%s is not implemented\n", pe_file->name.c_str(), exported_func);
     return 0;
 }
 
@@ -95,6 +95,6 @@ uintptr_t Provider::AddDataImpl(const char* nameExport, PVOID hookExport, size_t
 }
 
 uint64_t Provider::unimplemented_stub() {
-    Logger::Log("\t\t\033[38;5;9mINSIDE STUB, RETURNING 0\033[0m\n");
+    Logger::LogE("\t\t\INSIDE STUB, RETURNING 0\033[0m\n");
     return 0;
 }

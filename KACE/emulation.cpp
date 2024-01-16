@@ -621,6 +621,13 @@ namespace VCPU {
                 } else {
                     DebugBreak();
                 }
+            } else if (instr->mnemonic == ZYDIS_MNEMONIC_IMUL) {
+                if (instr->operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY && instr->operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER) { //imul rcx,[memory]
+                    InstrEmu::ReadPtr::EmulateIMUL(context, instr->operands[0].reg.value, addr, instr);
+                    return SkipToNext(context, instr);
+                } else {
+                    DebugBreak();
+                }
             }
 
             else {
@@ -954,6 +961,35 @@ namespace VCPU {
                 return true;
             }
 
+            bool EmulateIMUL(PCONTEXT ctx, ZydisRegister reg, uint64_t ptr, ZydisDecodedInstruction* instr) {
+                uint64_t* context_lookup = (uint64_t*)ctx;
+                auto reg_class = ZydisRegisterGetClass(reg);
+
+                if (reg_class == ZYDIS_REGCLASS_GPR64) {
+                    uint64_t value = *(uint64_t*)ptr;
+                    Logger::LogD("value64 = 0x%llx\n", value);
+                    context_lookup[GRegIndex(reg)] *= value;
+                } else if (reg_class == ZYDIS_REGCLASS_GPR32) {
+                    uint32_t value = *(uint32_t*)ptr;
+                    Logger::LogD("value32 = 0x%x\n", value);
+                    context_lookup[GRegIndex(reg)] *= value;
+                } else if (reg_class == ZYDIS_REGCLASS_GPR16) {
+                    uint16_t value = *(uint16_t*)ptr;
+                    Logger::LogD("value16 = 0x%x\n", value);
+                    context_lookup[GRegIndex(reg)] *= value;
+                } else if (reg_class == ZYDIS_REGCLASS_GPR8) {
+                    Logger::LogD("value8 = 0x%x\n", (*(uint8_t*)ptr));
+
+                    if (reg == ZYDIS_REGISTER_AH || reg == ZYDIS_REGISTER_BH || reg == ZYDIS_REGISTER_CH || reg == ZYDIS_REGISTER_DH) {
+                        context_lookup[GRegIndex(reg)] *= (*(uint8_t*)ptr) << 8;
+                    } else {
+                        context_lookup[GRegIndex(reg)] *= (*(uint8_t*)ptr);
+                    }
+                } else {
+                    DebugBreak();
+                }
+                return true;
+            }
         } // namespace ReadPtr
 
         namespace WritePtr {

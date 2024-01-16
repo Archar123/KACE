@@ -46,7 +46,12 @@ void PEFile::ParseSection() {
     for (int i = 0; i < pImageFileHeader->NumberOfSections; i++) {
 
         char name[9] = { 0 };
-        strncpy_s(name, (char*)pImageSectionHeader[i].Name, 8);
+
+        if (strlen((char*)pImageSectionHeader[i].Name) == 0) {
+            strncpy_s(name, std::to_string(i).c_str(), 8);
+        } else {
+            strncpy_s(name, (char*)pImageSectionHeader[i].Name, 8);
+        }
 
         SectionData data = { 0 };
 

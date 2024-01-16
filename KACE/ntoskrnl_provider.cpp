@@ -251,7 +251,7 @@ NTSTATUS h_NtCreateFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, OBJECT_AT
     Logger::Log("\tCreating file : %ls\n", ObjectAttributes->ObjectName->Buffer);
     auto ret = __NtRoutine("NtCreateFile", FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock, AllocationSize, FileAttributes, ShareAccess,
         CreateDisposition, CreateOptions, EaBuffer, EaLength);
-    Logger::Log("\tReturn : %08x\n", ret);
+    Logger::Log("\tReturn : %08x, Handle=%x\n", ret, FileHandle);
     return ret;
 }
 
@@ -676,8 +676,9 @@ NTSTATUS h_ExCreateCallback(void* CallbackObject, void* ObjectAttributes, bool C
 }
 
 NTSTATUS h_KeDelayExecutionThread(char WaitMode, BOOLEAN Alertable, PLARGE_INTEGER Interval) {
-    //Logger::Log("\tInterval= %llx\n", Interval->QuadPart);
-    Sleep(Interval->QuadPart * -1 / 10000 );
+    ULONG time = Interval->QuadPart * -1 / 10000;
+    Logger::LogD("\time= %d (s)\n", time);
+    Sleep(time);
     return STATUS_SUCCESS;
 }
 
@@ -1037,6 +1038,7 @@ h_KeWaitForMultipleObjects(ULONG Count, PVOID Object[], uint32_t WaitType, _KWAI
     uintptr_t* handleList = (uintptr_t*)malloc(sizeof(uintptr_t*) * Count);
     for (int i = 0; i < Count; i++) {
         handleList[i] = (uintptr_t)HandleManager::GetHandle((uintptr_t)Object[i]);
+        Logger::LogD("\r Object=0x%p\n", (uintptr_t)Object[i]);
     }
     bool waitAll = false;
     if (WaitType == 0)
@@ -1056,6 +1058,7 @@ h_KeWaitForMultipleObjects(ULONG Count, PVOID Object[], uint32_t WaitType, _KWAI
     } else {
         DebugBreak();
     }
+
     auto ret = WaitForMultipleObjects(Count, (const HANDLE*)handleList, waitAll, WaitMS);
 
     return STATUS_SUCCESS;
@@ -1122,7 +1125,7 @@ NTSTATUS h_ZwDeviceIoControlFile(HANDLE FileHandle,HANDLE Event,PVOID ApcRoutine
     Logger::Log("\tLen : %d Buffer : \n\t", InputBufferLength);
 
     for (int i = 0; i < InputBufferLength; i++) {
-        Logger::Log("%01x\n", ((unsigned char*)InputBuffer)[i]);
+        Logger::Log("%01x", ((unsigned char*)InputBuffer)[i]);
     }
     Logger::Log("\tRet : %llx\n", ret);
 
@@ -1327,7 +1330,7 @@ PVOID h_MmMapLockedPagesSpecifyCache(_Inout_ PMDL MemoryDescriptorList,
     _In_ /*KPROCESSOR_MODE*/ int AccessMode,_In_ MEMORY_CACHING_TYPE CacheType, _In_opt_ PVOID RequestedAddress,
     _In_ ULONG BugCheckOnFailure,_In_ ULONG Priority)
 {
-
+    return nullptr;
 }
 
 ///////   Lock   /////////
