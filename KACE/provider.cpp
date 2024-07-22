@@ -43,12 +43,13 @@ uintptr_t Provider::FindFuncImpl(uintptr_t ptr) {
         return (uintptr_t)passthrough_provider_cache[exported_func];
 
     implPtr = (uintptr_t)GetProcAddress(ntdll, exported_func);
-
-    if (!implPtr)
+    if (!implPtr) 
+    {
         implPtr = (uintptr_t)unimplemented_stub;
+        Logger::LogE("\t\t\NOTIMP STUB, %s \033[0m\n", exported_func);
+    }
 
     passthrough_provider_cache.insert(std::pair(exported_func, (PVOID)implPtr));
-
     return implPtr;
 }
 

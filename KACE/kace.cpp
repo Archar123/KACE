@@ -138,8 +138,6 @@ const wchar_t* registryBuffer = L"\\REGISTRY\\MACHINE\\SYSTEM\\ControlSet001\\Se
 
 DWORD FakeDriverEntry(LPVOID) {
 
-    
-
     Logger::Log("Calling the driver entrypoint\n");
 
     drvObj.Size = sizeof(drvObj);

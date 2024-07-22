@@ -27,7 +27,7 @@ namespace VCPU {
             MSRData.insert(std::pair(0x1DB, std::pair(0, "MSRLASTBRANCH-_FROM_IP_MSR")));
             MSRData.insert(std::pair(0x680, std::pair(0, "LastBranchFromIP_MSR")));
             MSRData.insert(std::pair(0x1c9, std::pair(0, "MSR_LASTBRANCH_TOS")));
-            MSRData.insert(std::pair(0, std::pair(0xFFF, "MSR_0_P5_IP_ADDR")));
+            MSRData.insert(std::pair(0, std::pair(0, "MSR_IA32_P5_MC_ADDR")));
             MSRData.insert(std::pair(0xc0000082, std::pair(0x10000, "MSR_LSTAR")));
             MSRData.insert(std::pair(0x1B, std::pair(0xfee00800, "IA32_APIC_BASE")));
             
@@ -138,6 +138,10 @@ namespace VCPU {
             
             else if (instr.mnemonic == ZYDIS_MNEMONIC_INVLPG) {
                 Logger::Log("Invalidating cache\n");
+                return SkipToNext(context, &instr);
+            } 
+            else if (instr.mnemonic == ZYDIS_MNEMONIC_IN) {
+                Logger::Log("in \n");
                 return SkipToNext(context, &instr);
             }
             else {
@@ -569,6 +573,16 @@ namespace VCPU {
 
                     DebugBreak();
                 }
+            } else if (instr->mnemonic == ZYDIS_MNEMONIC_ADC) {
+                if (instr->operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+
+                    InstrEmu::ReadPtr::EmulateADD(context, instr->operands[0].reg.value, addr, instr);
+                    return SkipToNext(context, instr);
+                } else {
+
+                    DebugBreak();
+                }
+
             } else if (instr->mnemonic == ZYDIS_MNEMONIC_CMP) {
                 if (instr->operands[0].type == ZYDIS_OPERAND_TYPE_MEMORY && instr->operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER) { //cmp [memory], reg
                     InstrEmu::EmulateCMPSourcePtr(context, instr->operands[1].reg.value, addr, instr);
@@ -628,9 +642,8 @@ namespace VCPU {
                 } else {
                     DebugBreak();
                 }
-            }
+            } else {
 
-            else {
                 Logger::Log("Unhandled Mnemonic for KUSER_SHARED_DATA manipulation.\n");
                 DebugBreak();
                 return false;
@@ -834,6 +847,36 @@ namespace VCPU {
                         context_lookup[GRegIndex(reg)] += (*(uint8_t*)ptr);
                     }
                 } else {
+                    DebugBreak();
+                }
+                return true;
+            }
+
+            bool EmulateADC(PCONTEXT ctx, ZydisRegister reg, uint64_t ptr, ZydisDecodedInstruction* instr) { //X86-compliant MOV R64, [...] emulation
+                uint64_t* context_lookup = (uint64_t*)ctx;
+                auto reg_class = ZydisRegisterGetClass(reg);
+
+                int carry_add = 0;
+                if (ctx->EFlags & 0x1)
+                    carry_add = 1;
+                context_lookup[GRegIndex(reg)] += carry_add;
+
+                if (reg_class == ZYDIS_REGCLASS_GPR64) {
+                    context_lookup[GRegIndex(reg)] += *(uint64_t*)ptr;
+
+                } else if (reg_class == ZYDIS_REGCLASS_GPR32) { //r32/m32 removes upper byte
+                    context_lookup[GRegIndex(reg)] = (context_lookup[GRegIndex(reg)] & 0xFFFFFFFF) + *(uint32_t*)ptr;
+                } else if (reg_class == ZYDIS_REGCLASS_GPR16) {
+                    context_lookup[GRegIndex(reg)] += (*(uint16_t*)ptr);
+                } else if (reg_class == ZYDIS_REGCLASS_GPR8) {
+                    if (reg == ZYDIS_REGISTER_AH || reg == ZYDIS_REGISTER_BH || reg == ZYDIS_REGISTER_CH || reg == ZYDIS_REGISTER_DH) {
+                        context_lookup[GRegIndex(reg)] += (*(uint8_t*)ptr) << 8;
+                    } else {
+                        context_lookup[GRegIndex(reg)] += (*(uint8_t*)ptr);
+                    }
+                } 
+                else 
+                {
                     DebugBreak();
                 }
                 return true;

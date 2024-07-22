@@ -2355,6 +2355,21 @@ struct _KGUARDED_MUTEX {
         ULONG CombinedApcDisable; //0x30
     };
 };
+
+typedef struct _KMUTANT {
+    _DISPATCHER_HEADER Header;
+    _LIST_ENTRY MutantListEntry;
+    struct _KTHREAD* OwnerThread;
+    union {
+        UCHAR MutantFlags;
+        struct {
+            UCHAR Abandoned : 1;
+            UCHAR Spare1 : 7;
+        } DUMMYSTRUCTNAME;
+    } DUMMYUNIONNAME;
+    UCHAR ApcDisable;
+};
+
 enum _KWAIT_REASON {
     Executive = 0,
     FreePage = 1,

@@ -48,7 +48,26 @@ struct windows_module {
 
 
 
+static std::string ReplaceSystemRoot(const std::string& path) {
+    static std::string systemRoot;
+    const std::string systemRootKey = "\\SystemRoot\\";
+    size_t pos = path.find(systemRootKey);
 
+    if (pos != std::string::npos) {
+        if (systemRoot.empty()) {
+            const char* systemRootEnv = std::getenv("SystemRoot");
+            if (systemRootEnv == nullptr)
+                return path;
+            systemRoot = systemRootEnv;
+            systemRoot += "\\";
+        }
+        std::string newPath = path;
+        newPath.replace(pos, systemRootKey.length(), systemRoot);
+        return newPath;
+    }
+
+    return path;
+}
 
 void Environment::InitializeSystemModules() {
     uint64_t len = 0;
@@ -61,13 +80,14 @@ void Environment::InitializeSystemModules() {
     }
     PRTL_PROCESS_MODULE_INFORMATION_EX pMods = (PRTL_PROCESS_MODULE_INFORMATION_EX)data;
 
-    while (pMods && pMods->NextOffset) {
+    while (pMods && pMods->NextOffset) 
+    {
         if (!strrchr((const char*)pMods->BaseInfo.FullPathName, '\\')) {
             break;
         }
-        auto filename = strrchr((const char*)pMods->BaseInfo.FullPathName, '\\') + 1;
-        LDR_DATA_TABLE_ENTRY LdrEntry{};
+        std::string filename = strrchr((const char*)pMods->BaseInfo.FullPathName, '\\') + 1;
 
+        LDR_DATA_TABLE_ENTRY LdrEntry{};
         LdrEntry.EntryPointActivationContext = 0;
         LdrEntry.Flags = pMods->BaseInfo.Flags;
         LdrEntry.HashLinks = LIST_ENTRY();
@@ -87,6 +107,7 @@ void Environment::InitializeSystemModules() {
 
         LdrEntry.CheckSum = pMods->ImageCheckSum;
         
+        bool is_need_insert_environment_module = true;
         const auto import_local_file = std::string(IMPORT_MODULE_DIRECTORY) + filename;
         if (fs::exists(import_local_file)) {
             auto pe_file = PEFile::Open(import_local_file, filename);
@@ -94,19 +115,58 @@ void Environment::InitializeSystemModules() {
             LdrEntry.DllBase = (PVOID)pe_file->GetMappedImageBase();
             LdrEntry.EntryPoint = (PVOID)pe_file->GetMappedImageBase(); // TODO parse PE header?
 
+            if (_stricmp("clipsp.sys", filename.c_str()) == 0)
+            {
+                Logger::LogD("Ignore PDB for %s \n", import_local_file.c_str());
 
-            Logger::Log("PDB for %s\n", import_local_file.c_str());
-            symparser::download_symbols(import_local_file);
-        } else {
-            LdrEntry.DllBase = (PVOID)pMods->BaseInfo.ImageBase;
-            LdrEntry.EntryPoint = (PVOID)pMods->BaseInfo.ImageBase; // TODO parse PE header?
+            } else {
+                Logger::Log("PDB for %s\n", import_local_file.c_str());
+                symparser::download_symbols(import_local_file);
+            }
+        } 
+        else 
+        {
+            std::string path = ReplaceSystemRoot((const char*) pMods->BaseInfo.FullPathName);
+            Logger::LogD("Load Module for %s \n", path.c_str());
 
-            // @todo: @es3n1n: resolve NT path to DOS path here and cache pdb
-            //
+            if (filename.starts_with("dump_")) 
+            {
+                if (filename == "dump_diskdump.sys" || filename == "dump_dumpfve.sys" || filename == "dump_storahci.sys") {
+                    filename = filename.substr(filename.find_last_of("_") + 1);
+                    path = path.substr(0, path.find_last_of("\\") + 1) + filename;
+
+                    auto pe_file = PEFile::Open(path.c_str(), filename);
+                    LdrEntry.DllBase = (PVOID)pe_file->GetMappedImageBase();
+                    LdrEntry.EntryPoint = (PVOID)pe_file->GetMappedImageBase(); // TODO parse PE header?
+
+                    Logger::LogD("Load Special Module for %s \n", path.c_str());
+                } 
+            }
+            else 
+            {
+                if (filename == "storahci.sys") 
+                {
+                    is_need_insert_environment_module = false;
+                } 
+                else 
+                {
+                    if (path.starts_with("\\??\\")) {
+                        path = path.substr(4);
+                    }
+
+                    auto pe_file = PEFile::Open(path.c_str(), filename);
+                    LdrEntry.DllBase = (PVOID)pe_file->GetMappedImageBase();
+                    LdrEntry.EntryPoint = (PVOID)pe_file->GetMappedImageBase(); // TODO parse PE header?
+                }
+            }
         }
 
-        environment_module.insert(std::pair((uintptr_t)LdrEntry.DllBase, LdrEntry));
-                
+        if (is_need_insert_environment_module)
+        {
+            environment_module.insert(std::pair((uintptr_t)LdrEntry.DllBase, LdrEntry));
+        }
+
+        //Next
         if (pMods->NextOffset != sizeof(_RTL_PROCESS_MODULE_INFORMATION_EX))
             break;
         pMods = (PRTL_PROCESS_MODULE_INFORMATION_EX)((uintptr_t)pMods + pMods->NextOffset);

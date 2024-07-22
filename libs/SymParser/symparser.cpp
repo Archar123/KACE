@@ -211,9 +211,11 @@ namespace symparser {
         if (!strstr(codeview->pdb_name, ".pdb"))
             return  std::vector<sym_t>();
         const auto pdb_path = cache_pdb(codeview);
-        if (!pdb_path)
+        if (!pdb_path) {
+#ifdef _DEBUG
             __debugbreak();
-
+#endif
+        }
         auto pdb = util::read_file(*pdb_path);
         auto symbols = parse_symbols(pdb.data(), image.data());
 

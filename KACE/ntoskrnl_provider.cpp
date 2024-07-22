@@ -58,32 +58,46 @@ void TrampolineThread(ThreadInfo* info) {
     SetEvent(info->mutex);
     auto ret = info->routineStart(info->routineContext);
     Logger::Log("End of thread with return : %llx\n", ret);
-    
 }
+
+////////////////////////////////////////////////////////////////////////////////////////
 void* hM_AllocPoolTag(uint32_t pooltype, size_t size, ULONG tag) {
+    Logger::Log("[API]ExAllocatePoolWithTag \n");
+
     auto ptr = _aligned_malloc(size, 0x1000);
     return ptr;
 }
 
 void* hM_AllocPool(uint32_t pooltype, size_t size) {
+    Logger::Log("[API]ExAllocatePool \n");
+
     auto ptr = _aligned_malloc(size, 0x1000);
     return ptr;
 }
 
 void h_DeAllocPoolTag(uintptr_t ptr, ULONG tag) {
+    Logger::Log("[API]ExFreePoolWithTag \n");
+
     _aligned_free((PVOID)ptr);
     return;
 }
 
 void h_DeAllocPool(uintptr_t ptr) {
+    Logger::Log("[API]ExFreePool \n");
+
     _aligned_free((PVOID)ptr);
     return;
 }
 
-_ETHREAD* h_KeGetCurrentThread() { return (_ETHREAD*)__readgsqword(0x188); }
+_ETHREAD* h_KeGetCurrentThread() { 
+    Logger::Log("[API]KeGetCurrentThread \n");
 
-NTSTATUS h_NtQuerySystemInformation(uint32_t SystemInformationClass, uintptr_t SystemInformation, ULONG SystemInformationLength, PULONG ReturnLength)
-{
+    return (_ETHREAD*)__readgsqword(0x188); 
+}
+
+NTSTATUS h_NtQuerySystemInformation(uint32_t SystemInformationClass, uintptr_t SystemInformation, ULONG SystemInformationLength, PULONG ReturnLength) {
+    Logger::Log("[API]NtQuerySystemInformation \n");
+
     auto x = NtQuerySystemInformation(SystemInformationClass, SystemInformation, SystemInformationLength, ReturnLength);
     Logger::Log("\tClass %08x status : %08x\n", SystemInformationClass, x);
 
@@ -101,14 +115,25 @@ NTSTATUS h_NtQuerySystemInformation(uint32_t SystemInformationClass, uintptr_t S
                 while (strstr(modulename, "\\"))
                     modulename++;
 
-                auto mapped_module = PEFile::FindModule(modulename);
+                std::string filename = modulename;
+                if (filename.starts_with("dump_")) {
+                    if (filename == "dump_diskdump.sys" || filename == "dump_dumpfve.sys" || filename == "dump_storahci.sys") {
+                        filename = filename.substr(filename.find_last_of("_") + 1);
+                        Logger::LogD("Load Special Module for %s \n", filename.c_str());
+                    }
+                }
+
+                auto mapped_module = PEFile::FindModule(filename.c_str());
                 if (mapped_module) {
-                    Logger::Log("\tPatching %s base from %llx to %llx\n", modulename, (PVOID)loadedmodules->Modules[i].ImageBase,
+                    Logger::Log("\tPatching %s base from %llx to %llx\n", filename.c_str(), (PVOID)loadedmodules->Modules[i].ImageBase,
                         (PVOID)mapped_module->GetMappedImageBase());
                     loadedmodules->Modules[i].ImageBase = mapped_module->GetMappedImageBase();
-                } else { //We're gonna pass the real module to the driver
-                    //loadedmodules->Modules[i].ImageBase = 0;
-                    //loadedmodules->Modules[i].LoadCount = 0;
+                } 
+                else { //We're gonna pass the real module to the driver
+                    Logger::LogE("Load Special Module for %s \n", filename.c_str());
+
+                    loadedmodules->Modules[i].ImageBase = 0;
+                    loadedmodules->Modules[i].LoadCount = 0;
                 }
             }
             //MemoryTracker::TrackVariable((uintptr_t)ptr, SystemInformationLength, (char*)"NtQuerySystemInformation"); BAD IDEA
@@ -167,14 +192,17 @@ NTSTATUS h_NtQuerySystemInformation(uint32_t SystemInformationClass, uintptr_t S
 }
 
 uint64_t h_RtlRandomEx(unsigned long* seed) {
+    Logger::Log("[API]RtlRandomEx \n");
+
     Logger::Log("\tSeed is %llx\n", *seed);
     auto ret = __NtRoutine("RtlRandomEx", seed);
     *seed = ret; //Keep behavior kinda same as Kernel equivalent in case of check
     return ret;
 }
 
-NTSTATUS h_IoCreateDevice(_DRIVER_OBJECT* DriverObject, ULONG DeviceExtensionSize, PUNICODE_STRING DeviceName, DWORD DeviceType,
-    ULONG DeviceCharacteristics, BOOLEAN Exclusive, _DEVICE_OBJECT** DeviceObject) {
+NTSTATUS h_IoCreateDevice(_DRIVER_OBJECT* DriverObject, ULONG DeviceExtensionSize, PUNICODE_STRING DeviceName, DWORD DeviceType, ULONG DeviceCharacteristics, BOOLEAN Exclusive, _DEVICE_OBJECT** DeviceObject) {
+    Logger::Log("[API]IoCreateDevice \n");
+
     *DeviceObject = (_DEVICE_OBJECT*)MemoryTracker::AllocateVariable(sizeof(_DEVICE_OBJECT));
     auto realDevice = *DeviceObject;
 
@@ -195,7 +223,7 @@ NTSTATUS h_IoCreateDevice(_DRIVER_OBJECT* DriverObject, ULONG DeviceExtensionSiz
 NTSTATUS h_IoCreateFileEx(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, OBJECT_ATTRIBUTES* ObjectAttributes, void* IoStatusBlock,
     PLARGE_INTEGER AllocationSize, ULONG FileAttributes, ULONG ShareAccess, ULONG Disposition, ULONG CreateOptions, PVOID EaBuffer, ULONG EaLength,
     void* CreateFileType, PVOID InternalParameters, ULONG Options, void* DriverContext) {
-
+    Logger::Log("[API]IoCreateDeviceEx \n");
 
     Logger::Log("\tCreating file : %ls\n", ObjectAttributes->ObjectName->Buffer);
     if (DesiredAccess == 0xC0000000)
@@ -203,11 +231,11 @@ NTSTATUS h_IoCreateFileEx(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, OBJECT_
     auto ret = __NtRoutine("NtCreateFile", FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock, AllocationSize, FileAttributes, ShareAccess,
         Disposition, CreateOptions, EaBuffer, EaLength);
     Logger::Log("\tReturn : %08x\n", ret);
-
     return 0;
 }
 
 void h_KeInitializeEvent(_KEVENT* Event, _EVENT_TYPE Type, BOOLEAN State) {
+    Logger::Log("[API]KeInitializeEvent \n");
 
     /* Initialize the Dispatcher Header */
     Event->Header.SignalState = State;
@@ -224,6 +252,8 @@ void h_KeInitializeEvent(_KEVENT* Event, _EVENT_TYPE Type, BOOLEAN State) {
 }
 
 NTSTATUS h_RtlGetVersion(RTL_OSVERSIONINFOW* lpVersionInformation) {
+    Logger::Log("[API]RtlGetVersion \n");
+
     auto ret = __NtRoutine("RtlGetVersion", lpVersionInformation);
     Logger::Log("\t%d.%d.%d\n", lpVersionInformation->dwMajorVersion, lpVersionInformation->dwMinorVersion, lpVersionInformation->dwBuildNumber);
     return ret;
@@ -231,23 +261,35 @@ NTSTATUS h_RtlGetVersion(RTL_OSVERSIONINFOW* lpVersionInformation) {
 
 EXCEPTION_DISPOSITION _c_exception(_EXCEPTION_RECORD* ExceptionRecord, void* EstablisherFrame, _CONTEXT* ContextRecord,
     _DISPATCHER_CONTEXT* DispatcherContext) {
+    Logger::Log("[API]__C_specific_handler \n");
+
     return (EXCEPTION_DISPOSITION)__NtRoutine("__C_specific_handler", ExceptionRecord, EstablisherFrame, ContextRecord, DispatcherContext);
 }
 
 NTSTATUS h_RtlMultiByteToUnicodeN(PWCH UnicodeString, ULONG MaxBytesInUnicodeString, PULONG BytesInUnicodeString, const CHAR* MultiByteString,
     ULONG BytesInMultiByteString) {
+    Logger::Log("[API]RtlMultiByteToUnicodeN \n");
+
     Logger::Log("\tTrying to convert : %s\n", MultiByteString);
     return __NtRoutine("RtlMultiByteToUnicodeN", UnicodeString, MaxBytesInUnicodeString, BytesInUnicodeString, MultiByteString, BytesInMultiByteString);
 }
 
 bool h_KeAreAllApcsDisabled() { //Track thread IRQL ideally
+    Logger::Log("[API]KeAreAllApcsDisabled \n");
+
     return false;
 }
 
-bool h_KeAreApcsDisabled() { return false; }
+bool h_KeAreApcsDisabled() {
+    Logger::Log("[API]KeAreApcsDisabled \n");
+
+    return false; 
+}
 
 NTSTATUS h_NtCreateFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, OBJECT_ATTRIBUTES* ObjectAttributes, PVOID IoStatusBlock,
     PLARGE_INTEGER AllocationSize, ULONG FileAttributes, ULONG ShareAccess, ULONG CreateDisposition, ULONG CreateOptions, PVOID EaBuffer, ULONG EaLength) {
+    Logger::Log("[API]NtCreateFile \n");
+
     Logger::Log("\tCreating file : %ls\n", ObjectAttributes->ObjectName->Buffer);
     auto ret = __NtRoutine("NtCreateFile", FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock, AllocationSize, FileAttributes, ShareAccess,
         CreateDisposition, CreateOptions, EaBuffer, EaLength);
@@ -257,12 +299,16 @@ NTSTATUS h_NtCreateFile(PHANDLE FileHandle, ACCESS_MASK DesiredAccess, OBJECT_AT
 
 NTSTATUS h_NtReadFile(HANDLE FileHandle, HANDLE Event, PVOID ApcRoutine, PVOID ApcContext, PVOID IoStatusBlock, PVOID Buffer, ULONG Length,
     PLARGE_INTEGER ByteOffset, PULONG Key) {
+    Logger::Log("[API]NtReadFile \n");
+
     auto ret = __NtRoutine("NtReadFile", FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, Buffer, Length, ByteOffset, Key);
     return ret;
 }
 
 NTSTATUS h_NtQueryInformationFile(HANDLE FileHandle, PVOID IoStatusBlock, PVOID FileInformation, ULONG Length,
     FILE_INFORMATION_CLASS FileInformationClass) {
+    Logger::Log("[API]NtQueryInformationFile \n");
+
     Logger::Log("\tQueryInformationFile with class %08x\n", FileInformationClass);
     auto ret = __NtRoutine("NtQueryInformationFile", FileHandle, IoStatusBlock, FileInformation, Length, FileInformationClass);
     return ret;
@@ -270,25 +316,35 @@ NTSTATUS h_NtQueryInformationFile(HANDLE FileHandle, PVOID IoStatusBlock, PVOID 
 
 NTSTATUS h_ZwQueryValueKey(HANDLE KeyHandle, PUNICODE_STRING ValueName, KEY_VALUE_INFORMATION_CLASS KeyValueInformationClass, PVOID KeyValueInformation,
     ULONG Length, PULONG ResultLength) {
+    Logger::Log("[API]ZwQueryValueKey \n");
+
     auto ret = __NtRoutine("NtQueryValueKey", KeyHandle, ValueName, KeyValueInformationClass, KeyValueInformation, Length, ResultLength);
     return ret;
 }
 
 NTSTATUS h_ZwOpenKey(PHANDLE KeyHandle, ACCESS_MASK DesiredAccess, OBJECT_ATTRIBUTES* ObjectAttributes) {
+    Logger::Log("[API]ZwOpenKey \n");
+
     auto ret = __NtRoutine("NtOpenKey", KeyHandle, DesiredAccess, ObjectAttributes);
     Logger::Log("\tTry to open %ls : %08x\n", ObjectAttributes->ObjectName->Buffer, ret);
     return ret;
 }
 
 NTSTATUS h_ZwFlushKey(PHANDLE KeyHandle) {
+    Logger::Log("[API]ZwFlushKey \n");
+
     auto ret = __NtRoutine("NtFlushKey", KeyHandle);
     return ret;
 }
 
 NTSTATUS h_ZwClose(HANDLE Handle) {
+    Logger::Log("[API]ZwClose \n");
+
     Logger::Log("\tClosing Kernel Handle : %llx\n", Handle);
+
     if (!Handle)
         return STATUS_NOT_FOUND;
+
     __try {
         auto ret = __NtRoutine("NtClose", Handle);
         return STATUS_SUCCESS;
@@ -343,7 +399,8 @@ uint64_t h_ObfDereferenceObject(PVOID obj) { //TODO
 }
 
 NTSTATUS h_PsLookupThreadByThreadId(HANDLE ThreadId, PVOID* Thread) {
-    //Logger::Log("\tThread ID : %llx is being investigated.\n", ThreadId);
+    Logger::Log("[API]PsLookupThreadByThreadId \n");
+
     auto ct = h_KeGetCurrentThread();
 
     if (ThreadId == (HANDLE)4) {
@@ -356,46 +413,60 @@ NTSTATUS h_PsLookupThreadByThreadId(HANDLE ThreadId, PVOID* Thread) {
 }
 
 HANDLE h_PsGetThreadId(_ETHREAD* Thread) {
+    Logger::Log("[API]PsGetThreadId \n");
+
     if (Thread)
         return Thread->Cid.UniqueThread;
     else
         return 0;
 }
 
-_PEB* h_PsGetProcessPeb(_EPROCESS* process) { return process->Peb; }
+_PEB* h_PsGetProcessPeb(_EPROCESS* process) {
+    Logger::Log("[API]PsGetProcessPeb \n");
 
-HANDLE h_PsGetProcessInheritedFromUniqueProcessId(_EPROCESS* Process) { return Process->InheritedFromUniqueProcessId; }
+    return process->Peb; 
+}
+
+HANDLE h_PsGetProcessInheritedFromUniqueProcessId(_EPROCESS* Process) { 
+    Logger::Log("[API]PsGetProcessInheritedFromUniqueProcessId \n");
+    
+    return Process->InheritedFromUniqueProcessId; 
+}
 
 NTSTATUS h_IoQueryFileDosDeviceName(PVOID fileObject, PVOID* name_info) {
+    Logger::Log("[API]IoQueryFileDosDeviceName \n");
+
     typedef struct _OBJECT_NAME_INFORMATION {
         UNICODE_STRING Name;
     } aids;
     static aids n;
     name_info = (PVOID*)&n;
-
     return STATUS_SUCCESS;
 }
 
 NTSTATUS h_ObOpenObjectByPointer(PVOID Object, ULONG HandleAttributes, PVOID PassedAccessState, ACCESS_MASK DesiredAccess, uint64_t ObjectType,
     uint64_t AccessMode, PHANDLE Handle) {
+    Logger::Log("[API]ObOpenObjectByPointer \n");
+
     return STATUS_SUCCESS;
 }
 
 NTSTATUS h_ObQueryNameString(PVOID Object, PVOID ObjectNameInfo, ULONG Length, PULONG ReturnLength) {
-    Logger::Log("\tUnimplemented function call detected\n");
+    Logger::Log("[API]ObQueryNameString \n");
+
     return STATUS_SUCCESS;
 }
 
 void h_ExAcquireFastMutex(PFAST_MUTEX FastMutex) {
-    auto fm = FastMutex;
+    Logger::Log("[API]ExAcquireFastMutex \n");
 
+    auto fm = FastMutex;
     if (!MutexManager::mutex_manager.contains((uintptr_t)&fm->Gate))
         DebugBreak();
 
     auto hMutex = MutexManager::mutex_manager[(uintptr_t)&fm->Gate];
 
     auto ret = WaitForSingleObject((HANDLE)hMutex, INFINITE);
-
     if (ret) {
         DebugBreak();
     }
@@ -404,11 +475,11 @@ void h_ExAcquireFastMutex(PFAST_MUTEX FastMutex) {
     fm->Owner = (_KTHREAD*)h_KeGetCurrentThread();
     fm->Count--;
 
-
     return;
 }
 
 void h_ExReleaseFastMutex(PFAST_MUTEX FastMutex) {
+    Logger::Log("[API]ExReleaseFastMutex \n");
 
     auto fm = FastMutex;
 
@@ -428,7 +499,8 @@ void h_ExReleaseFastMutex(PFAST_MUTEX FastMutex) {
 }
 
 LONG_PTR h_ObfReferenceObject(PVOID Object) {
-    //  Logger::Log("Trying to get reference for %llx", Object);
+    Logger::Log("[API]ObfReferenceObject \n");
+
     if (!Object)
         return -1;
     if (Object == (PVOID)&FakeSystemProcess) {
@@ -454,8 +526,9 @@ LONG h_RtlCompareString(const STRING* String1, const STRING* String2, BOOLEAN Ca
 }
 
 NTSTATUS h_PsLookupProcessByProcessId(HANDLE ProcessId, _EPROCESS** Process) {
+    Logger::Log("[API]PsLookupProcessByProcessId \n");
 
-    Logger::Log("\tProcess %08x EPROCESS being retrieved\n", ProcessId);
+    Logger::Log("\tProcessId= %08x \n", ProcessId);
 
     if (ProcessId == (HANDLE)4) {
         *Process = &FakeSystemProcess;
@@ -493,17 +566,15 @@ HANDLE h_PsGetCurrentThreadProcessId() {
 
 NTSTATUS h_NtQueryInformationProcess(HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass, PVOID ProcessInformation,
     ULONG ProcessInformationLength, PULONG ReturnLength) {
+    Logger::Log("[API]NtQueryInformationProcess \n");
 
     if (ProcessHandle == (HANDLE)-1) { //self-check
-
-        auto ret
-            = __NtRoutine("NtQueryInformationProcess", ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength, ReturnLength);
+        auto ret = __NtRoutine("NtQueryInformationProcess", ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength, ReturnLength);
         Logger::Log("\tProcessInformation for handle %llx - class %llx - ret : %llx\n", ProcessHandle, ProcessInformationClass, ret);
         *(DWORD*)ProcessInformation = 1; //We are critical
         return ret;
     } else {
-        auto ret
-            = __NtRoutine("NtQueryInformationProcess", ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength, ReturnLength);
+        auto ret = __NtRoutine("NtQueryInformationProcess", ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength, ReturnLength);
         Logger::Log("\tProcessInformation for handle %llx - class %llx - ret : %llx\n", ProcessHandle, ProcessInformationClass, ret);
         return ret;
     }
@@ -618,6 +689,13 @@ errno_t h_wcscat_s(wchar_t* strDestination, size_t numberOfElements, const wchar
     return wcscat_s(strDestination, numberOfElements, strSource);
 }
 
+int h__stricmp(const char* Str1, const char* Str2) { 
+    Logger::Log("[API]_stricmp %s, %s \n", Str1, Str2);
+    if (!Str1 || !Str2)
+        return -1;
+    return _stricmp(Str1, Str2);
+}
+
 void h_RtlTimeToTimeFields(long long Time, long long TimeFields) { __NtRoutine("RtlTimeToTimeFields", Time, TimeFields); }
 
 BOOLEAN h_KeSetTimer(_KTIMER* Timer, LARGE_INTEGER DueTime, _KDPC* Dpc) {
@@ -640,11 +718,15 @@ BOOLEAN h_KeSetTimer(_KTIMER* Timer, LARGE_INTEGER DueTime, _KDPC* Dpc) {
 }
 
 void h_KeInitializeTimer(_KTIMER* Timer) { 
+    Logger::Log("[API]KeInitializeTimer \n");
+
     InitializeListHead(&Timer->TimerListEntry); 
     Timer->Header.SignalState = 0;
 }
 
 ULONG_PTR h_KeIpiGenericCall(PVOID BroadcastFunction, ULONG_PTR Context) {
+    Logger::Log("[API]KeIpiGenericCall \n");
+
     Logger::Log("\tBroadcastFunction: %llx\n", static_cast<const void*>(BroadcastFunction));
     Logger::Log("\tContent: %llx\n", reinterpret_cast<const void*>(Context));
     auto ret = static_cast<long long (*)(ULONG_PTR)>(BroadcastFunction)(Context);
@@ -665,6 +747,8 @@ typedef struct _CALLBACK_OBJECT {
 CALLBACK_OBJECT test = { 0 };
 
 NTSTATUS h_ExCreateCallback(void* CallbackObject, void* ObjectAttributes, bool Create, bool AllowMultipleCallbacks) {
+    Logger::Log("[API]ExCreateCallback \n");
+
     OBJECT_ATTRIBUTES* oa = (OBJECT_ATTRIBUTES*)ObjectAttributes;
     _CALLBACK_OBJECT** co = (_CALLBACK_OBJECT**)CallbackObject;
 
@@ -683,15 +767,20 @@ NTSTATUS h_KeDelayExecutionThread(char WaitMode, BOOLEAN Alertable, PLARGE_INTEG
 }
 
 ULONG h_DbgPrompt(PCCH Prompt, PCH Response, ULONG Length) {
+    Logger::Log("[API]DbgPrompt \n");
+
     RaiseException(EXCEPTION_FLT_DIVIDE_BY_ZERO, 0, 0, 0);
     return 0x0;
 }
 
 NTSTATUS h_KdChangeOption(ULONG Option, ULONG InBufferBytes, PVOID InBuffer, ULONG OutBufferBytes, PVOID OutBuffer, PULONG OutBufferNeeded) {
+    Logger::Log("[API]KdChangeOption \n");
+
     return 0xC0000354; // STATUS_DEBUGGER_INACTIVE
 }
 
 NTSTATUS h_IoDeleteSymbolicLink(PUNICODE_STRING SymbolicLinkName) {
+    Logger::Log("[API]IoDeleteSymbolicLink \n");
 
     int TemporaryObject; // ebx
     OBJECT_ATTRIBUTES ObjectAttributes; // [rsp+20h] [rbp-30h] BYREF
@@ -714,6 +803,8 @@ NTSTATUS h_IoDeleteSymbolicLink(PUNICODE_STRING SymbolicLinkName) {
 }
 
 LONG h_KeSetEvent(_KEVENT* Event, LONG Increment, BOOLEAN Wait) {
+    Logger::Log("[API]KeSetEvent \n");
+
     LONG PreviousState;
     _KTHREAD* Thread;
 
@@ -762,6 +853,8 @@ NTSTATUS h_PsRemoveLoadImageNotifyRoutine(void* NotifyRoutine) {
 }
 
 NTSTATUS h_PsSetCreateProcessNotifyRoutineEx(void* NotifyRoutine, BOOLEAN Remove) {
+    Logger::Log("\PsSetCreateProcessNotifyRoutineEx addr=%p\n", NotifyRoutine);
+
     if (Remove) {
         return STATUS_INVALID_PARAMETER;
     } else {
@@ -810,15 +903,19 @@ PVOID h_MmGetSystemRoutineAddress(PUNICODE_STRING SystemRoutineName) {
 
     funcptr = GetProcAddress(LoadLibraryA("ntdll.dll"), cStr);
 
-    if (!funcptr)
+    if (!funcptr) 
+    {
         funcptr = Provider::unimplemented_stub;
-
+        Logger::LogE("\t\t\NOTIMP STUB, %s \033[0m\n", cStr);
+    }
     Provider::passthrough_provider_cache.insert(std::pair(cStr, funcptr));
 
     return funcptr;
 }
 
 HANDLE h_PsGetThreadProcessId(_ETHREAD* Thread) {
+    Logger::Log("[API]PsGetThreadProcessId \n");
+
     if (Thread) {
         Thread->Cid.UniqueProcess;
     }
@@ -826,6 +923,8 @@ HANDLE h_PsGetThreadProcessId(_ETHREAD* Thread) {
 }
 
 HANDLE h_PsGetThreadProcess(_ETHREAD* Thread) {
+    Logger::Log("[API]PsGetThreadProcess \n");
+
     if (Thread) {
         //todo impl
         Logger::Log("\th_PsGetThreadProcess un impl!\n");
@@ -838,32 +937,34 @@ void h_ProbeForRead(void* address, size_t len, ULONG align) { Logger::Log("\tPro
 void h_ProbeForWrite(void* address, size_t len, ULONG align) { Logger::Log("\tProbeForWrite -> {%llx}(len: %d) align: %d\n", address, len, align); }
 
 int h__vsnwprintf(wchar_t* buffer, size_t count, const wchar_t* format, va_list argptr) {
-
+    Logger::Log("[API]_vsnwprintf \n");
     return __NtRoutine("_vsnwprintf", buffer, count, format, argptr);
 }
 
 //todo fix mutex bs
-void h_KeInitializeMutex(PVOID Mutex, ULONG level) { 
-    DebugBreak();
+void h_KeInitializeMutex(_KMUTANT* Mutant, ULONG level) { 
+    Logger::Log("[API]KeInitializeMutex \n");
 
+    Mutant->Header.Type = 2;//MutantObject;
+    Mutant->Header.Size = sizeof(_KMUTANT) / sizeof(LONG);
+    Mutant->Header.SignalState = 1;
+    InitializeListHead(&Mutant->Header.WaitListHead);
+    Mutant->OwnerThread = (_KTHREAD*)NULL;
+    Mutant->Abandoned = FALSE;
+    Mutant->ApcDisable = 1;
+
+    auto hMutex = CreateMutex(NULL, false, NULL);
+    MutexManager::mutex_manager.insert(std::pair((uintptr_t)Mutant, (uintptr_t)hMutex));
 }
 
-LONG h_KeReleaseMutex(PVOID Mutex, BOOLEAN Wait) { 
-    DebugBreak();
-    return 0; }
+LONG h_KeReleaseMutex(_KMUTANT* Mutex, BOOLEAN Wait) { 
+    Logger::Log("[API]KeReleaseMutex \n");
 
-
-NTSTATUS h_KeWaitForSingleObject(PVOID Object, void* WaitReason, void* WaitMode, BOOLEAN Alertable, PLARGE_INTEGER Timeout) {
-
-    auto hEvent = HandleManager::GetHandle((uintptr_t)Object);
-    if (!hEvent)
-        DebugBreak();
-    WaitForSingleObject((HANDLE)hEvent, INFINITE);
-    return STATUS_SUCCESS;
-};
-
+    return 0;
+}
 
 NTSTATUS h_KeWaitForMutextObject(PVOID Object, void* WaitReason, void* WaitMode, BOOLEAN Alertable, PLARGE_INTEGER Timeout) {
+    Logger::Log("[API]KeWaitForMutextObject \n");
 
     if (!MutexManager::mutex_manager.contains((uintptr_t)Object))
         DebugBreak();
@@ -872,12 +973,28 @@ NTSTATUS h_KeWaitForMutextObject(PVOID Object, void* WaitReason, void* WaitMode,
 
     WaitForSingleObject((HANDLE)hMutex, INFINITE);
     return STATUS_SUCCESS;
-};
-
-ULONG h_KeQueryTimeIncrement() { 
-    return 156250; //machine with no hv
 }
 
+NTSTATUS h_KeWaitForSingleObject(PVOID Object, void* WaitReason, void* WaitMode, BOOLEAN Alertable, PLARGE_INTEGER Timeout) {
+    Logger::Log("[API]KeWaitForSingleObject \n");
+
+    __try {
+        if (((_KMUTANT*)Object)->Header.Type == 2) {
+            return h_KeWaitForMutextObject(Object, WaitReason, WaitMode, Alertable, Timeout);
+        }
+    } __except (1) { }
+
+    auto hEvent = HandleManager::GetHandle((uintptr_t)Object);
+    if (!hEvent)
+        DebugBreak();
+    WaitForSingleObject((HANDLE)hEvent, INFINITE);
+    return STATUS_SUCCESS;
+}
+
+ULONG h_KeQueryTimeIncrement() {
+
+    return 156250; //machine with no hv
+}
 
 NTSTATUS h_PsCreateSystemThread(PHANDLE ThreadHandle, ULONG DesiredAccess, OBJECT_ATTRIBUTES* ObjectAttributes, HANDLE ProcessHandle, void* ClientId,
     void* StartRoutine, PVOID StartContext) {
@@ -915,11 +1032,10 @@ void h_IofCompleteRequest(void* pirp, CHAR boost) {
 
 //todo impl
 NTSTATUS h_IoCreateSymbolicLink(PUNICODE_STRING SymbolicLinkName, PUNICODE_STRING DeviceName) { 
+    Logger::Log("[API]IoCreateSymbolicLink \n");
     Logger::Log("\tSymbolic Link Name : %ls\n", SymbolicLinkName->Buffer);
     Logger::Log("\tDeviceName : %ls\n", DeviceName->Buffer);
-
     return STATUS_SUCCESS; 
-
 }
 
 BOOL h_IoIsSystemThread(_ETHREAD* thread) { 
@@ -940,8 +1056,8 @@ void* h_IoGetTopLevelIrp() {
     return &irp;
 }
 
-NTSTATUS h_ObReferenceObjectByHandle(HANDLE handle, ACCESS_MASK DesiredAccess, _OBJECT_TYPE* ObjectType, uint64_t AccessMode, PVOID* Object,
-    void* HandleInformation) {
+NTSTATUS h_ObReferenceObjectByHandle(HANDLE handle, ACCESS_MASK DesiredAccess, _OBJECT_TYPE* ObjectType, uint64_t AccessMode, PVOID* Object, void* HandleInformation) {
+    Logger::Log("[API]ObReferenceObjectByHandle \n");
 
     if (HandleInformation) {
         
@@ -967,7 +1083,6 @@ NTSTATUS h_ObReferenceObjectByHandle(HANDLE handle, ACCESS_MASK DesiredAccess, _
     else {
         *(PHANDLE)(Object) = handle;
     }
-
 
     return 0;
 }
@@ -1016,6 +1131,8 @@ PVOID h_ExRegisterCallback(PVOID CallbackObject, PVOID CallbackFunction, PVOID C
 }
 
 void h_KeInitializeGuardedMutex(_KGUARDED_MUTEX* Mutex) {
+    Logger::Log("[API]KeInitializeGuardedMutex \n");
+
     Mutex->Owner = 0i64;
     Mutex->Count = 1;
     Mutex->Contention = 0;
@@ -1028,13 +1145,12 @@ void h_KeInitializeGuardedMutex(_KGUARDED_MUTEX* Mutex) {
     Mutex->Gate.Header.WaitListHead.Blink = &Mutex->Gate.Header.WaitListHead;
     auto hMutex = CreateMutex(NULL, false, NULL);
     MutexManager::mutex_manager.insert(std::pair((uintptr_t)&Mutex->Gate, (uintptr_t)hMutex));
-
-    
 }
 
-NTSTATUS
-h_KeWaitForMultipleObjects(ULONG Count, PVOID Object[], uint32_t WaitType, _KWAIT_REASON WaitReason, uint32_t WaitMode, BOOLEAN Alertable,
+NTSTATUS h_KeWaitForMultipleObjects(ULONG Count, PVOID Object[], uint32_t WaitType, _KWAIT_REASON WaitReason, uint32_t WaitMode, BOOLEAN Alertable,
     PLARGE_INTEGER Timeout, _KWAIT_BLOCK* WaitBlockArray) {
+    Logger::Log("[API]KeWaitForMultipleObjects \n");
+
     uintptr_t* handleList = (uintptr_t*)malloc(sizeof(uintptr_t*) * Count);
     for (int i = 0; i < Count; i++) {
         handleList[i] = (uintptr_t)HandleManager::GetHandle((uintptr_t)Object[i]);
@@ -1065,6 +1181,7 @@ h_KeWaitForMultipleObjects(ULONG Count, PVOID Object[], uint32_t WaitType, _KWAI
 }
 
 void h_KeClearEvent(_KEVENT* Event) { //This should set the Event to non-signaled
+    Logger::Log("[API]KeClearEvent \n");
 
     auto hEvent = HandleManager::GetHandle((uintptr_t)Event);
 
@@ -1083,6 +1200,8 @@ void h_KeClearEvent(_KEVENT* Event) { //This should set the Event to non-signale
 }
 
 BOOLEAN h_KeReadStateTimer(_KTIMER* timer) { 
+    Logger::Log("[API]KeReadStateTimer \n");
+
     if (TimerManager::timer_manager.contains(timer)) {
         auto timeSet = TimerManager::timer_manager[timer];
         if ((timer->DueTime.QuadPart * -1 / 10000) + timeSet < GetTickCount64()) {
@@ -1099,13 +1218,8 @@ BOOLEAN h_KeReadStateTimer(_KTIMER* timer) {
     return false; 
 }
 
-NTSTATUS h_ExGetFirmwareEnvironmentVariable(
-    PUNICODE_STRING VariableName,
-    LPGUID          VendorGuid,
-    PVOID           Value,
-    PULONG          ValueLength,
-    PULONG          Attributes
-) {
+NTSTATUS h_ExGetFirmwareEnvironmentVariable(PUNICODE_STRING VariableName, LPGUID VendorGuid, PVOID Value, PULONG ValueLength, PULONG Attributes) {
+
     Logger::Log("\tReading UEFI Var : %ls - GUID : %llx-%llx-%llx-%llx\n", VariableName->Buffer, VendorGuid->Data1, VendorGuid->Data2, VendorGuid->Data3, VendorGuid->Data4);
     if (*ValueLength)
         Logger::Log("\tRequested length : %llx\n", *ValueLength);
@@ -1115,9 +1229,9 @@ NTSTATUS h_ExGetFirmwareEnvironmentVariable(
 
 NTSTATUS h_ZwDeviceIoControlFile(HANDLE FileHandle,HANDLE Event,PVOID ApcRoutine,PVOID ApcContext,PVOID IoStatusBlock,ULONG IoControlCode,
     PVOID InputBuffer,ULONG InputBufferLength,PVOID OutputBuffer,ULONG OutputBufferLength) {
+    Logger::Log("[API]ZwDeviceIoControlFile \n");
 
     auto ret = __NtRoutine("NtDeviceIoControlFile", FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, IoControlCode, InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
-
     Logger::Log("\tHandle : %llx\n", FileHandle);
     Logger::Log("\tEvent : %llx\n", Event);
     Logger::Log("\tAPC Routine : %llx\n", ApcRoutine);
@@ -1132,12 +1246,9 @@ NTSTATUS h_ZwDeviceIoControlFile(HANDLE FileHandle,HANDLE Event,PVOID ApcRoutine
     return ret;
 }
 
-NTSTATUS h_IoGetDeviceInterfaces(
-    const GUID* InterfaceClassGuid,
-    _DEVICE_OBJECT* PhysicalDeviceObject,
-    ULONG          Flags,
-    wchar_t** SymbolicLinkList
-) {
+NTSTATUS h_IoGetDeviceInterfaces(const GUID* InterfaceClassGuid, _DEVICE_OBJECT* PhysicalDeviceObject, ULONG Flags, wchar_t** SymbolicLinkList) {
+    Logger::Log("[API]IoGetDeviceInterfaces \n");
+
     wchar_t GUID[256] = { 0 };
     StringFromGUID2(*InterfaceClassGuid, GUID, 64);
     Logger::Log("\tInterface Class Guid : %ls\n", GUID);
@@ -1149,7 +1260,6 @@ NTSTATUS h_IoGetDeviceInterfaces(
     }
     *SymbolicLinkList = (wchar_t*)0;
     //wcscpy(*SymbolicLinkList, L"\\??\\PCI#VEN_8086&DEV_15B8&SUBSYS_86721043&REV_00#3&11583659&0&FE#{cac88484-7515-4c03-82e6-71a87abac361}");
-
     return STATUS_NOT_FOUND;
 }
 
@@ -1446,6 +1556,34 @@ void  h_ExReleaseSpinLockExclusive(EX_SPIN_LOCK* SpinLock, uint32_t OldIrql)
     *SpinLock = 0;
 }
 
+///
+
+PVOID h_FltGetRoutineAddress(wchar_t* FltMgrRoutineName) {
+
+    char cStr[512] = { 0 };
+    PVOID funcptr = 0;
+    wcstombs(cStr, FltMgrRoutineName, 256);
+    Logger::Log("\tRetrieving %s ptr\n", FltMgrRoutineName);
+
+    if (Provider::function_providers.contains(cStr))
+        return Provider::function_providers[cStr];
+
+    if (Provider::data_providers.contains(cStr))
+        return Provider::data_providers[cStr];
+
+    if (Provider::passthrough_provider_cache.contains(cStr))
+        return Provider::passthrough_provider_cache[cStr];
+
+    funcptr = GetProcAddress(LoadLibraryA("ntdll.dll"), cStr);
+    if (!funcptr) {
+        funcptr = Provider::unimplemented_stub;
+        Logger::LogE("\t\t\NOTIMP STUB, %s \033[0m\n", cStr);
+    }
+
+    Provider::passthrough_provider_cache.insert(std::pair(cStr, funcptr));
+    return funcptr;
+}
+
 /////            END            ///////////
 
 void ntoskrnl_provider::Initialize() {
@@ -1579,6 +1717,14 @@ void ntoskrnl_provider::Initialize() {
     Provider::AddFuncImpl("DbgPrompt", h_DbgPrompt);
     Provider::AddFuncImpl("KdChangeOption", h_KdChangeOption);
     Provider::AddFuncImpl("KdSystemDebugControl", h_KdSystemDebugControl);
+
+
+    Provider::AddFuncImpl("FltGetRoutineAddress", h_FltGetRoutineAddress);
+
+    
+    Provider::AddFuncImpl("_stricmp", h__stricmp);
+
+
 
     ntoskrnl_export::Initialize();
 }
